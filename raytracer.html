@@ -38,53 +38,58 @@
          {
            center: [0, -1, 3],
            radius: 1,
-           color: [255, 0, 0]
+           color: [255, 0, 0],
+           specular: 500,
          },
          {
            center: [2, 0, 4],
            radius: 1,
-           color: [0, 0, 255]
+           color: [0, 0, 255],
+           specular: 500,
          },
          {
            center: [-2, 0, 4],
            radius: 1,
-           color: [0, 255, 0]
+           color: [0, 255, 0],
+           specular: 10,
          },
          {
            center: [0, -5001, 0],
            radius: 5000,
-           color: [255, 255, 0]
+           color: [255, 255, 0],
+           specular: 1000,
          },
          {
            center: [0, 2, 6],
            radius: 1,
-           color: [255, 0, 255]
+           color: [255, 0, 255],
+           specular: -1,
          },
        ]
      };
 
-     function add(v1, v2) {
-       return v1.map((val, i) => val + v2[i]);
+     function add(V1, V2) {
+       return V1.map((val, i) => val + V2[i]);
      }
 
-     function dot(v1, v2) {
-       return sum(v1.map((val, i) => val * v2[i]));
+     function dot(V1, V2) {
+       return sum(V1.map((val, i) => val * V2[i]));
      }
 
-     function len(v) {
-       return Math.sqrt(dot(v, v));
+     function len(V) {
+       return Math.sqrt(dot(V, V));
      }
 
-     function scale(s, v) {
-       return v.map(val => val * s);
+     function scale(s, V) {
+       return V.map(val => val * s);
      }
 
-     function sub(v1, v2) {
-       return v1.map((val, i) => val - v2[i]);
+     function sub(V1, V2) {
+       return V1.map((val, i) => val - V2[i]);
      }
 
-     function sum(v) {
-       return v.reduce((acc, val) => acc + val, 0);
+     function sum(V) {
+       return V.reduce((acc, val) => acc + val, 0);
      }
 
      function putPixel(x, y, [r, g, b, a = 255]) {
@@ -102,24 +107,47 @@
        return [x, y, viewport.depth];
      }
 
-     function computeLighting(p, n) {
+     function computeLighting(P, N, V, s) {
        let i = 0;
        for (let light of scene.lights) {
          if (light.type === 'ambient') {
            i += light.intensity;
          } else {
-           let l = light.type === 'point' ? sub(light.position, p) : light.direction
-           // cos a of two vectors is the dot product divided by the product of the lengths
-           let nDotL = dot(n, l);
+           let L = light.type === 'point' ? sub(light.position, P) : light.direction
+
+           // Diffuse
+           // cos(a) of two vectors is the dot product divided by the product of the lengths
+           let nDotL = dot(N, L);
            if (nDotL > 0) {
-             i += light.intensity * nDotL / (len(n) * len(l));
+             i += light.intensity * nDotL / (len(N) * len(L));
+           }
+
+           // Specular
+           // L = vector to the light source
+           // R = reflection of L, across the normal
+           // L = Lp + Ln
+           // Lp = component of L perpendicular to N
+           // Ln = component of L tangent to N
+           // Ln = N*ln, N being the normal unit vector, and ln a scalar
+           // ln = <N,L>
+           // Ln = N<N,L>, projection of L onto N
+           // Lp = L - Ln = L - N<N,L>
+           // R = N<N,L> - L + N<N,L>
+           // R = 2N<N,L> - L
+           // cos(a)^s is used to model specularity, see note on cos above
+           if (s !== -1) {
+             let R = sub(scale(2 * dot(N, L), N), L);
+             let rDotV = dot(R, V);
+             if (rDotV > 0) {
+               i += light.intensity * Math.pow(rDotV/(len(R) * len(V)), s);
+             }
            }
          }
        }
        return i;
      }
 
-     function intersectRaySphere(o, d, sphere) {
+     function intersectRaySphere(O, D, sphere) {
        // P = point on sphere, C = center
        // O = origin
        // D = V - O, vector from origin to point on the viewport, used for the "ray"
@@ -141,10 +169,10 @@
        // k3 = <OC, OC> - r^2
        // k1*t^2 + k2*t + k3 = 0
        let { center, radius } = sphere;
-       let oc = sub(origin, center);
-       let k1 = dot(d, d);
-       let k2 = 2 * dot(oc, d);
-       let k3 = dot(oc, oc) - radius ** 2;
+       let OC = sub(origin, center);
+       let k1 = dot(D, D);
+       let k2 = 2 * dot(OC, D);
+       let k3 = dot(OC, OC) - radius ** 2;
        let discriminant = Math.sqrt(k2 ** 2 - 4 * k1 * k3);
        let denominator = 2 * k1;
        return [
@@ -153,11 +181,11 @@
        ];
      }
 
-     function traceRay(o, d, tMin, tMax) {
+     function traceRay(O, D, tMin, tMax) {
        let closestT = Infinity;
        let closestSphere = null;
        for (let sphere of scene.spheres) {
-         let [t1, t2] = intersectRaySphere(o, d, sphere);
+         let [t1, t2] = intersectRaySphere(O, D, sphere);
          if (t1 >= tMin && t1 <= tMax && t1 < closestT) {
            closestT = t1;
            closestSphere = sphere;
@@ -168,10 +196,11 @@
          }
        }
        if (closestSphere) {
-         let p = add(o, scale(closestT, d)); // P = O + tD
-         let n = sub(p, closestSphere.center); // normal at point
-         n = scale(1/len(n), n); // convert to unit vector
-         return scale(computeLighting(p, n), closestSphere.color);
+         let P = add(O, scale(closestT, D)); // P = O + tD
+         let N = sub(P, closestSphere.center); // normal at point
+         N = scale(1/len(N), N); // convert to unit vector
+         let V = D.map(v => -v); // reverse of direction is reflection to the viewport
+         return scale(computeLighting(P, N, V, closestSphere.specular), closestSphere.color);
        }
        return backgroundColor;
      }
