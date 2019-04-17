@@ -109,7 +109,7 @@ function putPixel(x, y, [r, g, b, a = 255]) {
   // Change coordinates from canvas, where the origin is at the top left,
   // to viewport coordinates, where the origin is at the center
   x = canvas.width / 2 + x;
-  y = canvas.height / 2 - y;
+  y = canvas.height / 2 - y - 1;
   ctx.fillStyle = `rgba(${r},${g},${b},${a})`;
   ctx.fillRect(x, y, 1, 1);
 }
