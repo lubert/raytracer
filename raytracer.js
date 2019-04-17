@@ -6,8 +6,15 @@ const viewport = {
   depth: 1
 };
 const ctx = canvas.getContext("2d");
-const origin = [0, 0, 0];
-const backgroundColor = [255, 255, 255];
+const camera = {
+  position: [3, 0, 1],
+  rotation: [
+    [0.7071, 0, -0.7071],
+    [0, 1, 0],
+    [0.7071, 0, 0.7071],
+  ],
+};
+const backgroundColor = [0, 0, 0];
 const scene = {
   lights: [
     {
@@ -31,30 +38,35 @@ const scene = {
       radius: 1,
       color: [255, 0, 0],
       specular: 500,
+      reflective: 0.2,
     },
     {
       center: [2, 0, 4],
       radius: 1,
       color: [0, 0, 255],
       specular: 500,
+      reflective: 0.3,
     },
     {
       center: [-2, 0, 4],
       radius: 1,
       color: [0, 255, 0],
       specular: 10,
+      reflective: 0.4,
     },
     {
       center: [0, -5001, 0],
       radius: 5000,
       color: [255, 255, 0],
       specular: 1000,
+      reflective: 0.5,
     },
     {
       center: [0, 2, 6],
       radius: 1,
       color: [255, 0, 255],
       specular: -1,
+      reflective: 0.5,
     },
   ]
 };
@@ -73,6 +85,16 @@ function len(V) {
 
 function scale(s, V) {
   return V.map(val => val * s);
+}
+
+function mul(M, V) {
+  let res = [0, 0, 0];
+  for (let i = 0; i < 3; i++) {
+    for (var j = 0; j < 3; j++) {
+      res[i] += V[j] * M[i][j];
+    }
+  }
+  return res;
 }
 
 function sub(V1, V2) {
@@ -143,7 +165,7 @@ function computeLighting(P, N, V, s) {
       // R = 2N<N,L> - L
       // cos(a)^s is used to model specularity, see note on cos above
       if (s !== -1) {
-        let R = sub(scale(2 * dot(N, L), N), L);
+        let R = reflectRay(L, N);
         let rDotV = dot(R, V);
         if (rDotV > 0) {
           i += light.intensity * Math.pow(rDotV/(len(R) * len(V)), s);
@@ -209,14 +231,25 @@ function closestIntersection(O, D, tMin, tMax) {
   return [closestSphere, closestT];
 }
 
-function traceRay(O, D, tMin, tMax) {
+function traceRay(O, D, tMin, tMax, depth = 3) {
   let [sphere, t] = closestIntersection(O, D, tMin, tMax);
   if (!sphere) return backgroundColor;
   let P = add(O, scale(t, D)); // P = O + tD
   let N = sub(P, sphere.center); // normal at point
   N = scale(1/len(N), N); // convert to unit vector
   let V = scale(-1, D); // reverse of direction is reflection to the viewport
-  return scale(computeLighting(P, N, V, sphere.specular), sphere.color);
+  let localColor = scale(computeLighting(P, N, V, sphere.specular), sphere.color);
+  // Bail if recursion limit is hit or the object isn't reflective
+  let r = sphere.reflective;
+  if (depth <= 0 || r <= 0) return localColor;
+
+  let R = reflectRay(V, N);
+  let reflectedColor = traceRay(P, R, 0.001, Infinity, depth - 1);
+  return add(scale(1 - r, localColor), scale(r, reflectedColor));
+}
+
+function reflectRay(R, N) {
+  return sub(scale(2 * dot(N, R), N), R);
 }
 
 function render() {
@@ -224,8 +257,8 @@ function render() {
   const hh = Math.floor(canvas.height / 2);
   for (let x = -hw; x < hw; x++) {
     for (let y = -hh; y < hh; y++) {
-      const direction = canvasToViewport(x, y);
-      const color = traceRay(origin, direction, 1, Infinity);
+      const direction = mul(camera.rotation, canvasToViewport(x, y));
+      const color = traceRay(camera.position, direction, 1, Infinity);
       putPixel(x, y, color);
     }
   }
