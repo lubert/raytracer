@@ -113,7 +113,20 @@
          if (light.type === 'ambient') {
            i += light.intensity;
          } else {
-           let L = light.type === 'point' ? sub(light.position, P) : light.direction
+           let L, tMax;
+           if (light.type === 'point') {
+             L = sub(light.position, P);
+             tMax = 1.0;
+           } else {
+             L = light.direction;
+             tMax = Infinity;
+           }
+
+           // Shadow check
+           let [sphere, t] = closestIntersection(P, L, 0.001, tMax);
+           if (sphere) {
+             continue;
+           }
 
            // Diffuse
            // cos(a) of two vectors is the dot product divided by the product of the lengths
@@ -169,11 +182,15 @@
        // k3 = <OC, OC> - r^2
        // k1*t^2 + k2*t + k3 = 0
        let { center, radius } = sphere;
-       let OC = sub(origin, center);
+       let OC = sub(O, center);
        let k1 = dot(D, D);
        let k2 = 2 * dot(OC, D);
        let k3 = dot(OC, OC) - radius ** 2;
-       let discriminant = Math.sqrt(k2 ** 2 - 4 * k1 * k3);
+       let discriminant = k2 ** 2 - 4 * k1 * k3;
+       if (discriminant < 0) {
+         return [Infinity, Infinity];
+       }
+       discriminant = Math.sqrt(discriminant);
        let denominator = 2 * k1;
        return [
          (-k2 + discriminant) / denominator,
@@ -181,28 +198,31 @@
        ];
      }
 
-     function traceRay(O, D, tMin, tMax) {
+     function closestIntersection(O, D, tMin, tMax) {
        let closestT = Infinity;
        let closestSphere = null;
        for (let sphere of scene.spheres) {
          let [t1, t2] = intersectRaySphere(O, D, sphere);
-         if (t1 >= tMin && t1 <= tMax && t1 < closestT) {
+         if (t1 > tMin && t1 < tMax && t1 < closestT) {
            closestT = t1;
            closestSphere = sphere;
          }
-         if (t2 >= tMin && t2 <= tMax && t2 < closestT) {
+         if (t2 > tMin && t2 < tMax && t2 < closestT) {
            closestT = t2;
            closestSphere = sphere;
          }
        }
-       if (closestSphere) {
-         let P = add(O, scale(closestT, D)); // P = O + tD
-         let N = sub(P, closestSphere.center); // normal at point
-         N = scale(1/len(N), N); // convert to unit vector
-         let V = D.map(v => -v); // reverse of direction is reflection to the viewport
-         return scale(computeLighting(P, N, V, closestSphere.specular), closestSphere.color);
-       }
-       return backgroundColor;
+       return [closestSphere, closestT];
+     }
+
+     function traceRay(O, D, tMin, tMax) {
+       let [sphere, t] = closestIntersection(O, D, tMin, tMax);
+       if (!sphere) return backgroundColor;
+       let P = add(O, scale(t, D)); // P = O + tD
+       let N = sub(P, sphere.center); // normal at point
+       N = scale(1/len(N), N); // convert to unit vector
+       let V = scale(-1, D); // reverse of direction is reflection to the viewport
+       return scale(computeLighting(P, N, V, sphere.specular), sphere.color);
      }
 
      function render() {
