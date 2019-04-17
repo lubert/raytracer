@@ -116,6 +116,8 @@
            let L, tMax;
            if (light.type === 'point') {
              L = sub(light.position, P);
+             // Only care up to 1.0. i.e. "L" because we don't care about objects
+             // beyond the light
              tMax = 1.0;
            } else {
              L = light.direction;
@@ -123,6 +125,7 @@
            }
 
            // Shadow check
+           // Use 0.001, otherwise every object would cast shadows over itself
            let [sphere, t] = closestIntersection(P, L, 0.001, tMax);
            if (sphere) {
              continue;
